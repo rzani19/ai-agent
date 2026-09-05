@@ -1,6 +1,6 @@
 import re
 
-from agent import calculate, execute_tool
+from agent import calculate, execute_tool, load_history, save_history
 
 
 # =========================
@@ -34,3 +34,32 @@ def test_execute_tool_calculate():
 
 def test_execute_tool_unknown():
     assert execute_tool("nonexistent_tool", {}) == "Unknown tool: nonexistent_tool"
+
+
+# =========================
+# load_history() / save_history()
+# =========================
+
+def test_history_round_trip(tmp_path):
+    path = tmp_path / "history.json"
+    messages = [
+        {"role": "user", "content": "Nama saya Zani"},
+        {"role": "assistant", "content": "Halo Zani!"},
+    ]
+
+    save_history(path, messages)
+
+    assert load_history(path) == messages
+
+
+def test_load_history_missing_file(tmp_path):
+    path = tmp_path / "does_not_exist.json"
+
+    assert load_history(path) == []
+
+
+def test_load_history_corrupt_file(tmp_path):
+    path = tmp_path / "corrupt.json"
+    path.write_text("not valid json {{{")
+
+    assert load_history(path) == []

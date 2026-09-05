@@ -1,10 +1,14 @@
 import ast
+import json
 import operator
 from datetime import datetime
+from pathlib import Path
+
 from ollama import chat
 
 
 MODEL = "qwen3:8b"
+HISTORY_FILE = Path(__file__).parent / "conversation_history.json"
 
 
 # =========================
@@ -109,16 +113,42 @@ def execute_tool(name, arguments):
 
 
 # =========================
+# CONVERSATION HISTORY
+# =========================
+
+def load_history(path):
+    if not Path(path).exists():
+        return []
+
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        print(f"[Warning] Could not read history file at {path}, starting fresh.")
+        return []
+
+
+def save_history(path, messages):
+    path = Path(path)
+    tmp_path = path.with_suffix(".json.tmp")
+
+    with open(tmp_path, "w") as f:
+        json.dump(messages, f, indent=2)
+
+    tmp_path.replace(path)
+
+
+# =========================
 # AGENT
 # =========================
 
-def run_agent(user_input):
-    messages = [
+def run_agent(user_input, messages):
+    messages.append(
         {
             "role": "user",
             "content": user_input,
         }
-    ]
+    )
 
     while True:
         response = chat(
@@ -127,7 +157,7 @@ def run_agent(user_input):
             tools=tools,
         )
 
-        messages.append(response.message)
+        messages.append(response.message.model_dump())
 
         if not response.message.tool_calls:
             return response.message.content
@@ -159,12 +189,15 @@ if __name__ == "__main__":
     print("ZANI AI — AGENT v0.1")
     print("Ketik 'exit' untuk keluar.\n")
 
+    messages = load_history(HISTORY_FILE)
+
     while True:
         user_input = input("You: ")
 
         if user_input.lower() == "exit":
             break
 
-        answer = run_agent(user_input)
+        answer = run_agent(user_input, messages)
+        save_history(HISTORY_FILE, messages)
 
         print(f"AI: {answer}\n")
