@@ -8,6 +8,7 @@ from agent import (
     calculate,
     execute_tool,
     get_crypto_price,
+    get_stock_price,
     load_history,
     read_file,
     run_agent,
@@ -132,6 +133,130 @@ def test_execute_tool_get_crypto_price(monkeypatch):
 
     assert "Solana" in result
     assert "$102.76" in result
+
+
+# =========================
+# get_stock_price()
+# =========================
+
+def _quote(**overrides):
+    quote = {
+        "01. symbol": "AAPL",
+        "05. price": "172.5000",
+        "09. change": "1.2300",
+        "10. change percent": "0.7192%",
+    }
+    quote.update(overrides)
+    return {"Global Quote": quote}
+
+
+def test_get_stock_price_valid(monkeypatch):
+    monkeypatch.setattr(agent, "_alpha_vantage_key", lambda: "TESTKEY")
+    monkeypatch.setattr(agent, "_get_json", lambda url: _quote())
+
+    result = get_stock_price("aapl")
+
+    assert "AAPL" in result
+    assert "$172.50" in result
+    assert "+1.23" in result
+    assert "0.7192%" in result
+
+
+def test_get_stock_price_not_found(monkeypatch):
+    monkeypatch.setattr(agent, "_alpha_vantage_key", lambda: "TESTKEY")
+    monkeypatch.setattr(agent, "_get_json", lambda url: {"Global Quote": {}})
+
+    result = get_stock_price("NOTATICKER")
+
+    assert "not found" in result.lower()
+
+
+def test_get_stock_price_rate_limited(monkeypatch):
+    monkeypatch.setattr(agent, "_alpha_vantage_key", lambda: "TESTKEY")
+    monkeypatch.setattr(
+        agent, "_get_json",
+        lambda url: {"Information": "our standard API rate limit is 25 requests per day"},
+    )
+
+    result = get_stock_price("AAPL")
+
+    assert "limit" in result.lower()
+    assert "25" in result
+
+
+def test_get_stock_price_invalid_api_key(monkeypatch):
+    monkeypatch.setattr(agent, "_alpha_vantage_key", lambda: "BADKEY")
+    monkeypatch.setattr(
+        agent, "_get_json",
+        lambda url: {"Error Message": "the parameter apikey is invalid or missing."},
+    )
+
+    result = get_stock_price("AAPL")
+
+    assert "api key" in result.lower()
+
+
+def test_get_stock_price_missing_api_key(monkeypatch):
+    monkeypatch.setattr(agent, "_alpha_vantage_key", lambda: None)
+
+    result = get_stock_price("AAPL")
+
+    assert "ALPHA_VANTAGE_API_KEY" in result
+
+
+def test_get_stock_price_api_unreachable(monkeypatch):
+    monkeypatch.setattr(agent, "_alpha_vantage_key", lambda: "TESTKEY")
+
+    def fake_get_json(url):
+        raise urllib.error.URLError("no route to host")
+
+    monkeypatch.setattr(agent, "_get_json", fake_get_json)
+
+    result = get_stock_price("AAPL")
+
+    assert "could not reach" in result.lower()
+
+
+def test_execute_tool_get_stock_price(monkeypatch):
+    monkeypatch.setattr(agent, "_alpha_vantage_key", lambda: "TESTKEY")
+    monkeypatch.setattr(
+        agent, "_get_json",
+        lambda url: _quote(**{
+            "01. symbol": "TSLA",
+            "05. price": "245.6700",
+            "09. change": "-3.1000",
+            "10. change percent": "-1.2450%",
+        }),
+    )
+
+    result = execute_tool("get_stock_price", {"symbol": "tsla"})
+
+    assert "TSLA" in result
+    assert "$245.67" in result
+    assert "-3.10" in result
+
+
+# =========================
+# _load_dotenv()
+# =========================
+
+def test_load_dotenv_parses_and_strips(tmp_path):
+    env = tmp_path / ".env"
+    env.write_text(
+        "# comment\n"
+        "\n"
+        "  ALPHA_VANTAGE_API_KEY=abc123  \n"
+        'export QUOTED="hello"\n'
+    )
+
+    values = agent._load_dotenv(env)
+
+    assert values["ALPHA_VANTAGE_API_KEY"] == "abc123"
+    assert values["QUOTED"] == "hello"
+
+
+def test_load_dotenv_missing_file(tmp_path):
+    assert agent._load_dotenv(tmp_path / "nope.env") == {}
 
 
 # =========================

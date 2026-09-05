@@ -1,6 +1,7 @@
 import ast
 import json
 import operator
+import os
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -166,6 +167,96 @@ def get_crypto_price(coin):
     return f"{coin_id.replace('-', ' ').title()}: {price_str} USD ({change_str})"
 
 
+ALPHA_VANTAGE_URL = "https://www.alphavantage.co/query"
+
+
+def _load_dotenv(path):
+    """Minimal .env parser: `KEY=value` lines, ignoring comments and blanks."""
+    values = {}
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return values
+
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):]
+        key, sep, value = line.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        if key:
+            values[key] = value.strip().strip('"').strip("'")
+
+    return values
+
+
+def _alpha_vantage_key():
+    """Alpha Vantage API key: environment first, then the project .env file."""
+    key = os.environ.get("ALPHA_VANTAGE_API_KEY")
+    if not key:
+        key = _load_dotenv(PROJECT_ROOT / ".env").get("ALPHA_VANTAGE_API_KEY")
+    key = (key or "").strip()
+    return key or None
+
+
+def get_stock_price(symbol):
+    """Get a stock's latest price and daily change from Alpha Vantage (GLOBAL_QUOTE)."""
+    ticker = symbol.strip().upper()
+
+    if not ticker:
+        return "Please provide a stock ticker symbol, e.g. 'AAPL' or 'TSLA'."
+
+    api_key = _alpha_vantage_key()
+    if not api_key:
+        return "ALPHA_VANTAGE_API_KEY is not set. Add it to your .env file."
+
+    query = urllib.parse.urlencode(
+        {"function": "GLOBAL_QUOTE", "symbol": ticker, "apikey": api_key}
+    )
+
+    try:
+        data = _get_json(f"{ALPHA_VANTAGE_URL}?{query}")
+    except urllib.error.HTTPError as e:
+        return f"Alpha Vantage API error (HTTP {e.code}). Try again in a moment."
+    except (urllib.error.URLError, TimeoutError):
+        return "Could not reach the Alpha Vantage API. Check your connection and try again."
+    except (json.JSONDecodeError, ValueError):
+        return "Got an unexpected response from the Alpha Vantage API."
+
+    # Alpha Vantage answers HTTP 200 for every case; the body says what happened.
+    if "Error Message" in data:
+        return f"Alpha Vantage API error (possibly an invalid API key): {data['Error Message']}"
+
+    rate_limit_note = data.get("Note") or data.get("Information")
+    if rate_limit_note:
+        return f"Alpha Vantage request limit reached (free tier is 25/day): {rate_limit_note}"
+
+    quote = data.get("Global Quote") or {}
+    price = quote.get("05. price")
+
+    if not quote or not price:
+        return f"Stock '{symbol}' not found. Use a valid ticker symbol, e.g. 'AAPL' or 'TSLA'."
+
+    try:
+        price_val = float(price)
+    except (TypeError, ValueError):
+        return "Got an unexpected response from the Alpha Vantage API."
+
+    change = quote.get("09. change")
+    change_pct = quote.get("10. change percent", "n/a")
+
+    try:
+        change_str = f"{float(change):+.2f}"
+    except (TypeError, ValueError):
+        change_str = "n/a"
+
+    return f"{ticker}: ${price_val:,.2f} (change: {change_str}, {change_pct} today)"
+
+
 # =========================
 # TOOL REGISTRY
 # =========================
@@ -247,6 +338,32 @@ TOOL_REGISTRY = {
                         }
                     },
                     "required": ["coin"],
+                },
+            },
+        },
+    },
+    "get_stock_price": {
+        "function": get_stock_price,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "get_stock_price",
+                "description": (
+                    "Get the latest price and daily change of a stock by its "
+                    "ticker symbol (e.g. AAPL, TSLA) from Alpha Vantage."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {
+                            "type": "string",
+                            "description": (
+                                "Stock ticker symbol, e.g. 'AAPL' for Apple, "
+                                "'TSLA' for Tesla, 'MSFT' for Microsoft."
+                            ),
+                        }
+                    },
+                    "required": ["symbol"],
                 },
             },
         },
