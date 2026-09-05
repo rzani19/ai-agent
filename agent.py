@@ -1,3 +1,5 @@
+import ast
+import operator
 from datetime import datetime
 from ollama import chat
 
@@ -14,16 +16,37 @@ def get_time():
     return datetime.now().strftime("%H:%M:%S")
 
 
+_OPERATORS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.Pow: operator.pow,
+    ast.USub: operator.neg,
+    ast.UAdd: operator.pos,
+}
+
+
+def _eval_node(node):
+    if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+        return node.value
+
+    if isinstance(node, ast.BinOp) and type(node.op) in _OPERATORS:
+        return _OPERATORS[type(node.op)](_eval_node(node.left), _eval_node(node.right))
+
+    if isinstance(node, ast.UnaryOp) and type(node.op) in _OPERATORS:
+        return _OPERATORS[type(node.op)](_eval_node(node.operand))
+
+    raise ValueError("Unsupported expression")
+
+
 def calculate(expression):
-    """Safe calculator for basic arithmetic."""
-    allowed = set("0123456789+-*/(). ")
-
-    if not expression or not all(char in allowed for char in expression):
-        return "Invalid mathematical expression."
-
+    """Safe calculator for basic arithmetic, parsed via ast (no eval)."""
     try:
-        result = eval(expression, {"__builtins__": {}}, {})
-        return str(result)
+        tree = ast.parse(expression, mode="eval")
+        return str(_eval_node(tree.body))
+    except ZeroDivisionError:
+        return "Error: division by zero."
     except Exception:
         return "Could not calculate the expression."
 
