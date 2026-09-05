@@ -1,4 +1,13 @@
 .venv/
-.env
 __pycache__/
+*.py[cod]
+.env
+.env.*
+!.env.example
 conversation_history.json
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.vscode/
+.DS_Store
+*:Zone.Identifier
