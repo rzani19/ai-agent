@@ -1,6 +1,6 @@
 import re
 
-from agent import calculate, execute_tool, load_history, save_history
+from agent import calculate, execute_tool, load_history, read_file, save_history
 
 
 # =========================
@@ -63,3 +63,36 @@ def test_load_history_corrupt_file(tmp_path):
     path.write_text("not valid json {{{")
 
     assert load_history(path) == []
+
+
+# =========================
+# read_file()
+# =========================
+
+def test_read_file_existing(tmp_path):
+    (tmp_path / "note.txt").write_text("hello world")
+
+    assert read_file("note.txt", root=tmp_path) == "hello world"
+
+
+def test_read_file_missing(tmp_path):
+    assert read_file("missing.txt", root=tmp_path) == "File not found: missing.txt"
+
+
+def test_read_file_rejects_path_traversal(tmp_path):
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    (tmp_path / "secret.txt").write_text("top secret")
+
+    result = read_file("../secret.txt", root=project_dir)
+
+    assert result == "Access denied: path is outside the project folder."
+
+
+def test_read_file_truncates_long_content(tmp_path):
+    (tmp_path / "big.txt").write_text("x" * 6000)
+
+    result = read_file("big.txt", root=tmp_path)
+
+    assert result.startswith("x" * 5000)
+    assert "truncated" in result

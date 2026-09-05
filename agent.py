@@ -8,7 +8,9 @@ from ollama import chat
 
 
 MODEL = "qwen3:8b"
-HISTORY_FILE = Path(__file__).parent / "conversation_history.json"
+PROJECT_ROOT = Path(__file__).parent.resolve()
+HISTORY_FILE = PROJECT_ROOT / "conversation_history.json"
+MAX_READ_CHARS = 5000
 
 
 # =========================
@@ -55,6 +57,37 @@ def calculate(expression):
         return "Could not calculate the expression."
 
 
+def read_file(path, root=PROJECT_ROOT):
+    """Read a text file's content, restricted to files inside `root`."""
+    root = Path(root).resolve()
+
+    try:
+        target = (root / path).resolve()
+    except OSError:
+        return "Invalid path."
+
+    if not target.is_relative_to(root):
+        return "Access denied: path is outside the project folder."
+
+    if not target.exists():
+        return f"File not found: {path}"
+
+    if not target.is_file():
+        return f"Not a file: {path}"
+
+    try:
+        content = target.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return "Could not read file: not a valid text file."
+    except OSError as e:
+        return f"Could not read file: {e}"
+
+    if len(content) > MAX_READ_CHARS:
+        return content[:MAX_READ_CHARS] + f"\n... (truncated, showing first {MAX_READ_CHARS} characters)"
+
+    return content
+
+
 # =========================
 # TOOL REGISTRY
 # =========================
@@ -90,6 +123,26 @@ TOOL_REGISTRY = {
                         }
                     },
                     "required": ["expression"],
+                },
+            },
+        },
+    },
+    "read_file": {
+        "function": read_file,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "read_file",
+                "description": "Read the content of a text file inside the project folder (max 5000 characters).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Path to the file, relative to the project folder.",
+                        }
+                    },
+                    "required": ["path"],
                 },
             },
         },
