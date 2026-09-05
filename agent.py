@@ -155,15 +155,16 @@ def run_agent(user_input):
 # MAIN
 # =========================
 
-print("ZANI AI — AGENT v0.1")
-print("Ketik 'exit' untuk keluar.\n")
+if __name__ == "__main__":
+    print("ZANI AI — AGENT v0.1")
+    print("Ketik 'exit' untuk keluar.\n")
 
-while True:
-    user_input = input("You: ")
+    while True:
+        user_input = input("You: ")
 
-    if user_input.lower() == "exit":
-        break
+        if user_input.lower() == "exit":
+            break
 
-    answer = run_agent(user_input)
+        answer = run_agent(user_input)
 
-    print(f"AI: {answer}\n")
+        print(f"AI: {answer}\n")
