@@ -1,9 +1,18 @@
 import re
+import urllib.error
 
 from ollama import ResponseError
 
 import agent
-from agent import calculate, execute_tool, load_history, read_file, run_agent, save_history
+from agent import (
+    calculate,
+    execute_tool,
+    get_crypto_price,
+    load_history,
+    read_file,
+    run_agent,
+    save_history,
+)
 
 
 # =========================
@@ -49,6 +58,80 @@ def test_execute_tool_unexpected_argument():
     result = execute_tool("get_time", {"unexpected": "value"})
 
     assert "invalid arguments" in result.lower()
+
+
+# =========================
+# get_crypto_price()
+# =========================
+
+def test_get_crypto_price_valid(monkeypatch):
+    monkeypatch.setattr(
+        agent, "_get_json",
+        lambda url: {"bitcoin": {"usd": 79676.0, "usd_24h_change": 2.3456}},
+    )
+
+    result = get_crypto_price("bitcoin")
+
+    assert "Bitcoin" in result
+    assert "$79,676.00" in result
+    assert "+2.35%" in result
+
+
+def test_get_crypto_price_resolves_symbol_alias(monkeypatch):
+    captured = {}
+
+    def fake_get_json(url):
+        captured["url"] = url
+        return {"ethereum": {"usd": 2455.23, "usd_24h_change": -1.1}}
+
+    monkeypatch.setattr(agent, "_get_json", fake_get_json)
+
+    result = get_crypto_price("ETH")
+
+    assert "ids=ethereum" in captured["url"]
+    assert "-1.10%" in result
+
+
+def test_get_crypto_price_not_found(monkeypatch):
+    monkeypatch.setattr(agent, "_get_json", lambda url: {})
+
+    result = get_crypto_price("notacoin")
+
+    assert "not found" in result.lower()
+
+
+def test_get_crypto_price_api_unreachable(monkeypatch):
+    def fake_get_json(url):
+        raise urllib.error.URLError("connection refused")
+
+    monkeypatch.setattr(agent, "_get_json", fake_get_json)
+
+    result = get_crypto_price("bitcoin")
+
+    assert "could not reach" in result.lower()
+
+
+def test_get_crypto_price_http_error(monkeypatch):
+    def fake_get_json(url):
+        raise urllib.error.HTTPError(url, 429, "Too Many Requests", {}, None)
+
+    monkeypatch.setattr(agent, "_get_json", fake_get_json)
+
+    result = get_crypto_price("bitcoin")
+
+    assert "429" in result
+
+
+def test_execute_tool_get_crypto_price(monkeypatch):
+    monkeypatch.setattr(
+        agent, "_get_json",
+        lambda url: {"solana": {"usd": 102.76, "usd_24h_change": 1.5}},
+    )
+
+    result = execute_tool("get_crypto_price", {"coin": "sol"})
+
+    assert "Solana" in result
+    assert "$102.76" in result
 
 
 # =========================

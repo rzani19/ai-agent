@@ -1,6 +1,9 @@
 import ast
 import json
 import operator
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -88,6 +91,81 @@ def read_file(path, root=PROJECT_ROOT):
     return content
 
 
+COINGECKO_PRICE_URL = "https://api.coingecko.com/api/v3/simple/price"
+HTTP_TIMEOUT = 10
+
+# Common ticker symbols -> CoinGecko coin ids. Anything not listed here is passed
+# straight through as an id (lowercased), so full names like "bitcoin" work too.
+_COIN_ALIASES = {
+    "btc": "bitcoin",
+    "eth": "ethereum",
+    "sol": "solana",
+    "bnb": "binancecoin",
+    "xrp": "ripple",
+    "ada": "cardano",
+    "doge": "dogecoin",
+    "dot": "polkadot",
+    "matic": "matic-network",
+    "ltc": "litecoin",
+    "trx": "tron",
+    "avax": "avalanche-2",
+    "link": "chainlink",
+    "usdt": "tether",
+    "usdc": "usd-coin",
+    "shib": "shiba-inu",
+}
+
+
+def _get_json(url):
+    """Fetch a URL and parse its JSON body. Isolated so tests can stub the network."""
+    request = urllib.request.Request(url, headers={"User-Agent": "ai-agent/0.1"})
+    with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as response:
+        return json.load(response)
+
+
+def get_crypto_price(coin):
+    """Get a cryptocurrency's current USD price and 24h change from CoinGecko."""
+    key = coin.strip().lower()
+
+    if not key:
+        return "Please provide a coin name or symbol, e.g. 'bitcoin' or 'btc'."
+
+    coin_id = _COIN_ALIASES.get(key, key)
+
+    query = urllib.parse.urlencode(
+        {
+            "ids": coin_id,
+            "vs_currencies": "usd",
+            "include_24hr_change": "true",
+        }
+    )
+
+    try:
+        data = _get_json(f"{COINGECKO_PRICE_URL}?{query}")
+    except urllib.error.HTTPError as e:
+        return f"CoinGecko API error (HTTP {e.code}). Try again in a moment."
+    except (urllib.error.URLError, TimeoutError):
+        return "Could not reach the CoinGecko API. Check your connection and try again."
+    except (json.JSONDecodeError, ValueError):
+        return "Got an unexpected response from the CoinGecko API."
+
+    entry = data.get(coin_id)
+
+    if not entry or "usd" not in entry:
+        return (
+            f"Cryptocurrency '{coin}' not found. "
+            "Use the full name (e.g. 'bitcoin') or a common symbol (e.g. 'btc')."
+        )
+
+    price = entry["usd"]
+    change = entry.get("usd_24h_change")
+
+    price_str = f"${price:,.2f}" if price >= 1 else f"${price:,.8f}"
+    change_str = "24h change: n/a" if change is None else f"24h change: {change:+.2f}%"
+
+    return f"{coin_id.replace('-', ' ').title()}: {price_str} USD ({change_str})"
+
+
 # =========================
 # TOOL REGISTRY
 # =========================
@@ -143,6 +221,32 @@ TOOL_REGISTRY = {
                         }
                     },
                     "required": ["path"],
+                },
+            },
+        },
+    },
+    "get_crypto_price": {
+        "function": get_crypto_price,
+        "schema": {
+            "type": "function",
+            "function": {
+                "name": "get_crypto_price",
+                "description": (
+                    "Get the current USD price and 24-hour change of a "
+                    "cryptocurrency (e.g. Bitcoin, Ethereum) from CoinGecko."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "coin": {
+                            "type": "string",
+                            "description": (
+                                "Cryptocurrency name or ticker symbol, "
+                                "e.g. 'bitcoin', 'ethereum', 'btc', 'eth'."
+                            ),
+                        }
+                    },
+                    "required": ["coin"],
                 },
             },
         },
