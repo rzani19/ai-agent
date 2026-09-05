@@ -4,7 +4,7 @@ import operator
 from datetime import datetime
 from pathlib import Path
 
-from ollama import chat
+from ollama import ResponseError, chat
 
 
 MODEL = "qwen3:8b"
@@ -162,7 +162,10 @@ def execute_tool(name, arguments):
     if entry is None:
         return f"Unknown tool: {name}"
 
-    return entry["function"](**arguments)
+    try:
+        return entry["function"](**arguments)
+    except TypeError as e:
+        return f"Tool '{name}' was called with invalid arguments: {e}"
 
 
 # =========================
@@ -204,11 +207,21 @@ def run_agent(user_input, messages):
     )
 
     while True:
-        response = chat(
-            model=MODEL,
-            messages=messages,
-            tools=tools,
-        )
+        try:
+            response = chat(
+                model=MODEL,
+                messages=messages,
+                tools=tools,
+            )
+        except ConnectionError:
+            return (
+                "Error: could not connect to Ollama. "
+                "Make sure it's running (`ollama serve`) and try again."
+            )
+        except ResponseError as e:
+            if e.status_code == 404:
+                return f"Error: model '{MODEL}' not found. Pull it first with `ollama pull {MODEL}`."
+            return f"Error: Ollama returned an error: {e.error}"
 
         messages.append(response.message.model_dump())
 
@@ -250,7 +263,12 @@ if __name__ == "__main__":
         if user_input.lower() == "exit":
             break
 
-        answer = run_agent(user_input, messages)
+        try:
+            answer = run_agent(user_input, messages)
+        except Exception as e:
+            print(f"[Error] Unexpected error: {e}\n")
+            continue
+
         save_history(HISTORY_FILE, messages)
 
         print(f"AI: {answer}\n")

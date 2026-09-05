@@ -1,6 +1,9 @@
 import re
 
-from agent import calculate, execute_tool, load_history, read_file, save_history
+from ollama import ResponseError
+
+import agent
+from agent import calculate, execute_tool, load_history, read_file, run_agent, save_history
 
 
 # =========================
@@ -34,6 +37,45 @@ def test_execute_tool_calculate():
 
 def test_execute_tool_unknown():
     assert execute_tool("nonexistent_tool", {}) == "Unknown tool: nonexistent_tool"
+
+
+def test_execute_tool_missing_argument():
+    result = execute_tool("calculate", {})
+
+    assert "invalid arguments" in result.lower()
+
+
+def test_execute_tool_unexpected_argument():
+    result = execute_tool("get_time", {"unexpected": "value"})
+
+    assert "invalid arguments" in result.lower()
+
+
+# =========================
+# run_agent() error handling
+# =========================
+
+def test_run_agent_connection_error(monkeypatch):
+    def fake_chat(*args, **kwargs):
+        raise ConnectionError("Failed to connect to Ollama.")
+
+    monkeypatch.setattr(agent, "chat", fake_chat)
+
+    result = run_agent("hi", [])
+
+    assert "could not connect" in result.lower()
+
+
+def test_run_agent_model_not_found(monkeypatch):
+    def fake_chat(*args, **kwargs):
+        raise ResponseError("model 'qwen3:8b' not found, try pulling it first", 404)
+
+    monkeypatch.setattr(agent, "chat", fake_chat)
+
+    result = run_agent("hi", [])
+
+    assert "not found" in result.lower()
+    assert "ollama pull" in result.lower()
 
 
 # =========================
